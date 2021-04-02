@@ -1,9 +1,14 @@
-use std::{env, time::Duration};
+use std::{ env, sync::Arc, time::Duration};
 
 use serenity::{
     async_trait,
     client::{
-        Client, Context, EventHandler
+        Client, Context, EventHandler,
+        bridge::{
+            gateway::{
+                ShardId, ShardManager
+            }
+        },
     },
     framework::{
         standard::{
@@ -15,14 +20,24 @@ use serenity::{
     model::{
         channel::{ Message },
         gateway::{ Ready },
-    }
+    },
+    prelude::*
 };
 use tokio::time::sleep;
 
+// Shard management
+struct ShardManagerContainer;
+
+impl TypeMapKey for ShardManagerContainer {
+    type Value = Arc<Mutex<ShardManager>>;
+}
+
+// Commands implementation
 #[group]
 #[commands(ping)]
 struct General;
 
+// Handler impl
 struct Handler;
 
 #[async_trait]
@@ -41,6 +56,7 @@ impl EventHandler for Handler {
     }
 }
 
+// Main section
 #[tokio::main]
 async fn main() {
     let framework = StandardFramework::new()
@@ -83,6 +99,7 @@ async fn main() {
     }
 }
 
+// Commands
 #[command]
 async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(ctx, format!("Pong! Shard: {}", ctx.shard_id)).await?;
