@@ -70,7 +70,9 @@ async fn uptime(ctx: &Context, msg: &Message) -> CommandResult {
         let data = ctx.data.read().await;
 
         // Get the running duration
-        let uptime = data.get::<uptime::Uptime>().expect("Couldn't fetch uptime.");
+        let uptime = data
+            .get::<uptime::Uptime>()
+            .expect("Couldn't fetch uptime.");
 
         // Convert to string
         uptime.to_str()
