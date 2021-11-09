@@ -1,35 +1,41 @@
-use std::{ collections::{ HashSet }, env, sync::Arc, time::Duration};
+// Modules
+mod commands;
+mod utils;
+
+// Imports
+use std::{collections::HashSet, env, sync::Arc};
 
 use serenity::{
     async_trait,
-    client::{
-        Client, Context, EventHandler,
-        bridge::{
-            gateway::{
-                ShardId, ShardManager
-            }
-        },
-    },
-    framework::{
-        standard::{
-            Args,
-            CommandGroup,
-            CommandResult,
-            StandardFramework,
-            HelpOptions,
-            help_commands,
-            macros::{ command, group, help }
-        }
-    },
-    model::{
-        channel::Message,
-        gateway::Ready,
-        id::UserId,
+    client::bridge::gateway::{GatewayIntents, ShardManager},
+    framework::standard::{
+        help_commands,
+        macros::{group, help, hook},
+        Args, CommandGroup, CommandResult, HelpOptions, StandardFramework,
     },
     http::Http,
-    prelude::*
+    model::{channel::Message, event::ResumedEvent, gateway::Ready, id::UserId},
+    prelude::*,
 };
-use tokio::time::sleep;
+
+use commands::info::*;
+use utils::uptime;
+
+// Handler
+struct Handler;
+
+#[async_trait]
+impl EventHandler for Handler {
+    async fn ready(&self, _: Context, ready: Ready) {
+        println!("{} is connected!", ready.user.name);
+        println!("Using API v{}", ready.version);
+        println!("ID: {}", ready.session_id);
+    }
+
+    async fn resume(&self, _: Context, _: ResumedEvent) {
+        println!("Resumed connection.");
+    }
+}
 
 // Shard management
 struct ShardManagerContainer;
@@ -38,161 +44,112 @@ impl TypeMapKey for ShardManagerContainer {
     type Value = Arc<Mutex<ShardManager>>;
 }
 
+// Help command
 #[help]
-#[individual_command_tip =
-"Hello! こんにちは！Hola! Bonjour! 您好! 안녕하세요~\n\n\
-If you want more information about a specific command, just pass the command as argument."]
-#[command_not_found_text = "Could not find: `{}`."]
+#[individual_command_tip = "Use `{prefix}{command} {subcommand}` for more info on a command."]
+#[command_not_found_text = "Could not find the command `{}`."]
 #[max_levenshtein_distance(3)]
 #[indention_prefix = "+"]
+#[lacking_permissions = "Hide"]
+#[lacking_role = "Strike"]
+#[wrong_channel = "Hide"]
 async fn my_help(
     context: &Context,
     msg: &Message,
     args: Args,
     help_options: &'static HelpOptions,
     groups: &[&'static CommandGroup],
-    owners: HashSet<UserId>
+    owners: HashSet<UserId>,
 ) -> CommandResult {
     let _ = help_commands::with_embeds(context, msg, args, help_options, groups, owners).await;
 
     Ok(())
 }
 
-// Commands implementation
-#[group]
-#[commands(ping, latency)]
-struct General;
-
-// Handler impl
-struct Handler;
-
-#[async_trait]
-impl EventHandler for Handler {
-    async fn ready(&self, _: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
-
-        if let Some(shard) = ready.shard {
-            println!(
-                "{} is connected on shard {}/{}!",
-                ready.user.name,
-                shard[0],
-                shard[1],
-            );
-        }
+// Hooks
+#[hook]
+async fn after(_ctx: &Context, _msg: &Message, command_name: &str, command_result: CommandResult) {
+    match command_result {
+        Ok(()) => {}
+        Err(why) => println!("Command '{}' returned error {:?}", command_name, why),
     }
 }
 
-// Main section
+#[hook]
+async fn unknown_command(_ctx: &Context, _msg: &Message, unknown_command_name: &str) {
+    println!("Could not find command named '{}'", unknown_command_name);
+}
+
+// Command groups
+#[group]
+#[description = "Get info about the bot."]
+#[commands(ping, uptime, latency, about)]
+struct General;
+
+// Main function
 #[tokio::main]
 async fn main() {
-    // Login with a bot token from the environment
-    let token = env::var("DISCORD_TOKEN").expect("token");
+    // Get token
+    let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
 
-    // Fetch owners
+    // Create the instance of bot
     let http = Http::new_with_token(&token);
 
-    // We will fetch your bot's owners and id
+    // Fetch owners and ID
     let (owners, bot_id) = match http.get_current_application_info().await {
         Ok(info) => {
             let mut owners = HashSet::new();
-            if let Some(team) = info.team {
-                owners.insert(team.owner_user_id);
-            } else {
-                owners.insert(info.owner.id);
-            }
-            match http.get_current_user().await {
-                Ok(bot_id) => (owners, bot_id.id),
-                Err(why) => panic!("Could not access the bot id: {:?}", why),
-            }
-        },
+            owners.insert(info.owner.id);
+
+            (owners, info.id)
+        }
         Err(why) => panic!("Could not access application info: {:?}", why),
     };
 
-    // Define the framework
+    // Framework
     let framework = StandardFramework::new()
-        .configure(|c| c
-                    .with_whitespace(true)
-                    .on_mention(Some(bot_id))
-                    .prefix("~")
-                    .delimiters(vec![", ", ","])
-                    .owners(owners)
-        )
+        .configure(|c| {
+            c.with_whitespace(true)
+                .on_mention(Some(bot_id))
+                .prefix("~")
+                .delimiters(vec![", ", ","])
+                .owners(owners)
+        })
         .help(&MY_HELP)
         .group(&GENERAL_GROUP);
 
-    // Define the client
-    let mut client = Client::builder(token)
+    // Client building
+    let mut client = Client::builder(&token)
         .event_handler(Handler)
         .framework(framework)
+        .intents(GatewayIntents::all())
         .await
         .expect("Error creating client");
 
+    // Global ctx data
     {
         let mut data = client.data.write().await;
+
+        // Shard manager
         data.insert::<ShardManagerContainer>(Arc::clone(&client.shard_manager));
+
+        // Uptime
+        data.insert::<uptime::Uptime>(uptime::Uptime::new());
     }
 
-    // Shard management
-    let manager = client.shard_manager.clone();
+    let shard_manager = client.shard_manager.clone();
 
+    // Spawn service
     tokio::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(30)).await;
+        tokio::signal::ctrl_c()
+            .await
+            .expect("CTRL + C not registered.");
 
-            let lock = manager.lock().await;
-            let shard_runners = lock.runners.lock().await;
-
-            for (id, runner) in shard_runners.iter() {
-                println!(
-                    "Shard ID {} is {} with a latency of {:?}",
-                    id,
-                    runner.stage,
-                    runner.latency,
-                );
-            }
-        }
+        shard_manager.lock().await.shutdown_all().await;
     });
 
-    // start listening for events by starting a single shard
+    // Start client
     if let Err(why) = client.start().await {
         println!("An error occurred while running the client: {:?}", why);
     }
-}
-
-// Commands
-#[command]
-async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.reply(ctx, format!("Pong! Shard: {}", ctx.shard_id)).await?;
-
-    Ok(())
-}
-
-#[command]
-async fn latency(ctx: &Context, msg: &Message) -> CommandResult {
-    let data = ctx.data.read().await;
-
-    let shard_manager = match data.get::<ShardManagerContainer>() {
-        Some(v) => v,
-        None => {
-            msg.reply(ctx, "There was a problem getting the shard manager").await?;
-
-            return Ok(());
-        },
-    };
-
-    let manager = shard_manager.lock().await;
-    let runners = manager.runners.lock().await;
-
-    let runner = match runners.get(&ShardId(ctx.shard_id)) {
-        Some(runner) => runner,
-        None => {
-            msg.reply(ctx,  "No shard found").await?;
-
-            return Ok(());
-        },
-    };
-
-    msg.reply(ctx, &format!("The shard latency is {:?}", runner.latency)).await?;
-
-    Ok(())
 }
