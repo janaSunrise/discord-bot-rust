@@ -19,6 +19,4 @@ Here are the steps to get you started!
 
 And, you should be good to go!
 
-<div align="center">
-  Made by Sunrit Jana with <3
-</div>
+<div align="center">Made by Sunrit Jana with ♥</div>
