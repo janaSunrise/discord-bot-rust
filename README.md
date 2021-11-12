@@ -1,15 +1,15 @@
 # Discord bot rust
 
-Learning serenity-rs and building discord bots for fun :D
+Discord bot in rust using `serenity-rs`, to learn and build for fun.
 
-Do remember that, this bot is built for fun, and for learning. This isn't
-an actual bot that can be used for some specific purpose.
+This bot is built for fun and learning purpose. This is not an actual
+bot, that can be used for specific purposes.
 
-## How to run?
+## Installation and Usage
 
-This project uses cargo, Be sure to ensure you got that installed :)
+This project uses cargo. Ensure that you have it installed.
 
-And here's the steps to get it running!
+Here are the steps to get you started!
 
 - Install the dependencies: `cargo build`
 - Set the Discord bot token
@@ -17,7 +17,7 @@ And here's the steps to get it running!
   - MacOS / Linux: `export DISCORD_TOKEN=your-token`
 - Once done, RUN IT! **`cargo run`**
 
-Bam, You're done!
+And, you should be good to go!
 
 <div align="center">
   Made by Sunrit Jana with <3
